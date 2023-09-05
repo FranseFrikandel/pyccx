@@ -22,7 +22,7 @@ class NodeSet(MeshSet):
      """
     def __init__(self, name, nodes):
         super().__init__(name)
-        self._nodes = nodes
+        self._nodes = np.array(nodes) # Typecast to array, in case user passes a list
 
     @property
     def nodes(self):
@@ -33,7 +33,7 @@ class NodeSet(MeshSet):
 
     @nodes.setter
     def nodes(self, nodes):
-        self._nodes = nodes
+        self._nodes = np.array(nodes) # Typecast to array, in case user passes a list
 
     def writeInput(self) -> str:
         out = '*NSET,NSET={:s}\n'.format(self.name)
@@ -48,7 +48,7 @@ class ElementSet(MeshSet):
     """
     def __init__(self, name, els):
         super().__init__(name)
-        self._els = els
+        self._els = np.array(els) # Typecast to array, in case user passes a list
 
     @property
     def els(self):
@@ -59,7 +59,7 @@ class ElementSet(MeshSet):
 
     @els.setter
     def els(self, elements):
-        self._els = elements
+        self._els = np.array(elements) # Typecast to array, in case user passes a list
 
     def writeInput(self) -> str:
 
@@ -77,7 +77,7 @@ class SurfaceSet(MeshSet):
     def __init__(self, name, surfacePairs):
 
         super().__init__(name)
-        self._elSurfacePairs = surfacePairs
+        self._elSurfacePairs = np.array(surfacePairs) # Typecast to array, in case user passes a list
 
     @property
     def surfacePairs(self):
@@ -89,7 +89,7 @@ class SurfaceSet(MeshSet):
 
     @surfacePairs.setter
     def surfacePairs(self, surfacePairs):
-        self._elSurfacePairs = surfacePairs
+        self._elSurfacePairs = np.array(surfacePairs) # Typecast to array, in case user passes a list
 
     def writeInput(self) -> str:
 
@@ -104,7 +104,7 @@ class SurfaceSet(MeshSet):
 
 class Connector:
     """
-     A Connector ir a rigid connector between a set of nodes and an (optional) reference node.
+     A Connector is a rigid connector between a set of nodes and an (optional) reference node.
      """
     def __init__(self, name, nodes, refNode = None):
         self.name = name
