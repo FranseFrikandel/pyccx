@@ -92,9 +92,9 @@ class MeshSet:
 
 class NodeSet(MeshSet):
     """
-     An node set is basic entity for storing node set lists. The set remains constant without any dynamic referencing
-     to any underlying geometric entities.
-     """
+    An node set is basic entity for storing node set lists. The set remains constant without any dynamic referencing
+    to any underlying geometric entities.
+    """
     def __init__(self, name, nodes):
         super().__init__(name)
         self._nodes = np.unique(np.asanyarray(nodes, dtype=np.int64))
@@ -121,7 +121,7 @@ class NodeSet(MeshSet):
 class ElementSet(MeshSet):
     """
     An element set is basic entity for storing element set lists.The set remains constant without any dynamic referencing
-     to any underlying geometric entities.
+    to any underlying geometric entities.
     """
     def __init__(self, name, els):
         super().__init__(name)

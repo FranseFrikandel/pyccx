@@ -1,1 +1,1 @@
-from .boundarycondition import BoundaryCondition, BoundaryConditionType, Acceleration, Film, Fixed, Force, HeatFlux, Pressure, Radiation
+from .boundarycondition import BoundaryCondition, BoundaryConditionType, Acceleration, Film, Fixed, Force, HeatFlux, Pressure, Radiation, SurfaceTraction
