@@ -1,10 +1,12 @@
+from typing import List, Tuple, Union
+
 import abc
 import re
 import os
+import logging
+import numpy as np
 
 from ..core import ElementSet, NodeSet
-
-import numpy as np
 
 
 class Result(abc.ABC):
@@ -12,10 +14,18 @@ class Result(abc.ABC):
     Base Class for all Calculix Results
     """
     def __init__(self):
-        self.frequency = 1
+        self._frequency = 1
 
-    def setFrequency(self, freq):
-        self.frequency = freq
+    @property
+    def frequency(self):
+        """
+        The frequency for storing results sections in Calculix
+        """
+        return self._frequency
+
+    @frequency.setter
+    def frequency(self, frequency: int):
+        self._frequency = frequency
 
     @abc.abstractmethod
     def writeInput(self):
@@ -24,29 +34,110 @@ class Result(abc.ABC):
 
 class NodalResult(Result):
 
-    def __init__(self, nodeSet: NodeSet):
+    def __init__(self, nodeSet: Union[str,NodeSet]):
+
+        if not (isinstance(nodeSet, NodeSet) or isinstance(nodeSet, str)):
+            raise TypeError('NodalResult must be initialized with a NodeSet object or name of set')
 
         self._nodeSet = nodeSet
 
-        self.useNodalDisplacements = False
-        self.useNodalTemperatures = False
-        self.useReactionForces = False
-        self.useHeatFlux = False
-        self.useCauchyStress = False  # Int points are interpolated to nodes
-        self.usePlasticStrain = False
-        self.useNodalStrain = False
+        self._displacement = True
+        self._temperature = False
+        self._reactionForce = False
+        self._heatFlux = False
+        self._cauchyStress = False  # Int points are interpolated to nodes
+        self._plasticStrain = False
+        self._strain = False
+
+        self._expandShellElements = False
 
         super().__init__()
 
     @property
+    def displacement(self) -> bool:
+        """ Include temperature in the output """
+        return self._displacement
+
+    @displacement.setter
+    def displacement(self, state: bool):
+        self._displacement = state
+
+    @property
+    def temperature(self) -> bool:
+        """ Include temperature in the output """
+        return self._temperature
+
+    @temperature.setter
+    def temperature(self, state: bool):
+        self._temperature = state
+
+    @property
+    def reactionForce(self) -> bool:
+        """ Include reaction forces in the output """
+        return self._reactionForce
+
+    @reactionForce.setter
+    def reactionForce(self, state: bool):
+        self._reactionForce = state
+
+    @property
+    def heatFlux(self) -> bool:
+        """ Include heat flux in the output """
+        return self._heatFlux
+
+    @heatFlux.setter
+    def heatFlux(self, state):
+        self._heatFlux = state
+
+    @property
+    def cauchyStress(self) -> bool:
+        """ Include cauchy stress components in the output """
+        return self._cauchyStress
+
+    @cauchyStress.setter
+    def cauchyStress(self, state):
+        self._cauchyStress = state
+
+    @property
+    def strain(self) -> bool:
+        """ Include strain in the output """
+        return self._strain
+
+    @strain.setter
+    def strain(self, state):
+        self._strain = state
+
+    @property
+    def plasticStrain(self) -> bool:
+        """ Include plastic strain in the output """
+        return self._plasticStrain
+
+    @plasticStrain.setter
+    def plasticStrain(self, state):
+        self._plasticStrain = state
+
+    @property
+    def expandShellElements(self):
+        """ Expand shell elements from their mid-surface in the output """
+        return self._expandShellElements
+
+    @expandShellElements.setter
+    def expandShellElements(self, state):
+        self._expandShellElements = state
+
+    @property
     def nodeSet(self) -> NodeSet:
         """
-        The elementset to obtain values for post-processing.
+        The node set to obtain values for post-processing.
         """
         return self._nodeSet
 
     @nodeSet.setter
     def nodeSet(self, nodeSet: NodeSet):
+
+        if not (isinstance(nodeSet, NodeSet) or isinstance(nodeSet, str)):
+            raise TypeError('NodalResult nodeset must be a NodeSet object or name of set')
+
         self._nodeSet = nodeSet
 
     def writeInput(self):
@@ -56,15 +147,21 @@ class NodalResult(Result):
         if isinstance(self.nodeSet, str) and self.nodeSet != '':
             inputStr += 'NSET={:s}, '.format(self.nodeSet)
 
-        inputStr += 'FREQUENCY={:d}\n'.format(self.frequency)
+        if isinstance(self.nodeSet, NodeSet):
+            inputStr += 'NSET={:s}, '.format(self.nodeSet.name)
 
-        if self.useNodalDisplacements:
+        if not self._expandShellElements:
+            inputStr += 'OUTPUT=2D, '
+
+        inputStr += 'FREQUENCY={:d}\n'.format(self._frequency)
+
+        if self._displacement:
             inputStr += 'U\n'
 
-        if self.useNodalTemperatures:
+        if self._temperature:
             inputStr += 'NT\n'
 
-        if self.useReactionForces:
+        if self._reactionForce:
             inputStr += 'RF\n'
 
         inputStr += self.writeElementInput()
@@ -72,58 +169,144 @@ class NodalResult(Result):
         return inputStr
 
     def writeElementInput(self):
-        str = '*EL FILE, NSET={:s}, FREQUENCY={:d}\n'.format(self._nodeSet.name, self.frequency)
+        str = '*EL FILE, NSET={:s}, FREQUENCY={:d}\n'.format(self._nodeSet.name, self._frequency)
 
-        if self.useCauchyStress:
+        if self._cauchyStress:
             str += 'S\n'
-        if self.useNodalStrain:
+
+        if self._strain:
             str += 'E\n'
 
-        if self.usePlasticStrain:
+        if self._plasticStrain:
             str += 'PEEQ\n'
 
-        if self.useHeatFlux:
+        if self._heatFlux:
             str += 'HFL\n'
 
         return str
 
 
 class ElementResult(Result):
+    """
+
+    Including this object will inform Calcuix to save the elemental integration properties to the file (.dat) for
+    the selected ElementSet.
+
+    """
     def __init__(self, elSet: ElementSet):
 
+        if not (isinstance(elSet, ElementSet) or isinstance(elSet, str)):
+            raise TypeError('ElementResult must be initialized with an ElementSet object or string')
+
         self._elSet = elSet
-        self.useElasticStrain = False
-        self.useCauchyStress = False
-        self.useHeatFlux = False
-        self.useESE = False
+        self._strain = False
+        self._mechanicalStrain = False
+        self._cauchyStress = False
+        self._plasticStrain = False
+        self._heatFlux = False
+        self._ESE = False
 
         super().__init__()
+
+    @property
+    def plasticStrain(self) -> bool:
+        """ The equivalent plastic strain"""
+        return self._plasticStrain
+
+    @plasticStrain.setter
+    def plasticStrain(self, state: bool):
+        self._plasticStrain = state
+
+    @property
+    def strain(self) -> bool:
+        """
+        The total Lagrangian strain for (hyper)elastic materials and incremental plasticity
+        and the total Eulerian strain for deformation plasticity."""
+        return self._strain
+
+    @strain.setter
+    def strain(self, state: bool ):
+        self._strain = state
+
+    @property
+    def mechanicalStrain(self) -> bool:
+        """
+        This is the mechanical Lagrangian strain for (hyper)elastic materials and incremental plasticity and the
+        mechanical Eulerian strain for deformation plasticity (mechanical strain = total strain - thermal strain)."""
+        return self._mechanicalStrain
+
+    @mechanicalStrain.setter
+    def mechanicalStrain(self, state: bool):
+        self._mechanicalStrain = state
+
+    @property
+    def ESE(self) -> bool:
+        """ """
+        return self._ESE
+
+    @ESE.setter
+    def ESE(self, state: bool):
+        """ The internal energy per unit volume """
+        self._ESE = state
+
+    @property
+    def heatFlux(self) -> bool:
+        """ Include heat flux in the output """
+        return self._heatFlux
+
+    @heatFlux.setter
+    def heatFlux(self, state):
+        self._heatFlux = state
+
+    @property
+    def cauchyStress(self) -> bool:
+        """ Include cauchy stress components in the output """
+        return self._cauchyStress
+
+    @cauchyStress.setter
+    def cauchyStress(self, state):
+        self._cauchyStress = state
 
     @property
     def elementSet(self) -> ElementSet:
         """
         The elementset to obtain values for post-processing.
         """
+
         return self._elSet
 
     @elementSet.setter
     def elementSet(self, elSet: ElementSet):
+
+        if not (isinstance(elSet, NodeSet) or isinstance(elSet, str)):
+            raise TypeError('ElementResult must be initialized with a NodeSet object or name of set')
+
         self._elSet = elSet
 
     def writeInput(self):
-        str = ''
-        str += '*EL PRINT, ELSET={:s}, FREQUENCY={:d}\n'.format(self._elSet.name, self.frequency)
 
-        if self.useCauchyStress:
+        str = ''
+
+        elName = self._elSet.name if isinstance(self._elSet, ElementSet) else self._elSet
+
+        str += '*EL PRINT, ELSET={:s}, FREQUENCY={:d}\n'.format(elName, self._frequency)
+
+        if self._cauchyStress:
             str += 'S\n'
 
-        if self.useElasticStrain:
+        if self._strain:
             str += 'E\n'
 
-        if self.useESE:
+        if self._mechanicalStrain:
+            str += 'ME\n'
+
+        if self._plasticStrain:
+            str += 'PEEQ\n'
+
+        if self._ESE:
             str += 'ELSE\n'
 
-        if self.useHeatFlux:
+        if self._heatFlux:
             str += 'HFL\n'
 
         return str
@@ -141,12 +324,30 @@ class ResultProcessor:
         self.increments = {}
         self.jobName = jobName
 
-        print('Reading file {:s}'.format(jobName))
+        self._elements = None
+        self._nodes = None
+
+        logging.info('Reading file {:s}'.format(jobName))
+
+    @property
+    def nodes(self):
+        """
+        Nodes identified in the Calculix results file
+        """
+        return self._nodes
+
+    @property
+    def elements(self):
+        """
+        Elements identified in the Calculix results file
+        """
+        return self._elements
 
     def lastIncrement(self):
         """
         Returns the last increment of the Calculix results file
-        :return:
+
+        :return: The last increment of the Calculix results file
         """
 
         idx = sorted(list(self.increments.keys()))[-1]
@@ -168,8 +369,8 @@ class ResultProcessor:
         https://github.com/spacether/pycalculix
 
         :param fstr: C format string, commas separate fields
-        :param line: str: line string to parse
-        :return:  list: List of typed items extracted from the line
+        :param line: line string to parse
+        :return:  List of typed items extracted from the line
         """
 
         res = []
@@ -211,6 +412,7 @@ class ResultProcessor:
                             substr = thestr[:width]
                             thestr = thestr[width:]
                             substr = substr.strip()  # remove space padding
+
                             if ctype == 'I':
                                 substr = int(substr)
                             elif ctype == 'E':
@@ -271,8 +473,8 @@ class ResultProcessor:
 
 
     def readElResultBlock(self, infile, line):
-
         """Returns an array of line, mode, rfstr, time"""
+
         words = line.strip().split()
         # add time if not present
         time = float(words[-1])
@@ -286,8 +488,10 @@ class ResultProcessor:
         return [line, mode, rfstr, time]
 
     def readNodalResultsBlock(self, infile):
+        """
+        Returns an array of line, mode, rfstr, time
+        """
 
-        """Returns an array of line, mode, rfstr, time"""
         line = infile.readline()
         fstr = "1X,' 100','C',6A1,E12.5,I12,20A1,I2,I5,10A1,I2"
         tmp = self._getVals(fstr, line)
@@ -324,7 +528,7 @@ class ResultProcessor:
         """
 
         infile = open('{:s}.frd'.format(self.jobName), 'r')
-        print('Loading nodal results from file: ' + self.jobName)
+        logging.info('Loading nodal results from file: {:s}.frd'.format(self.jobName))
 
         mode = None
         time = 0.0
@@ -335,15 +539,63 @@ class ResultProcessor:
             if not line:
                 break
 
+            if '2C' in line:
+                # Read nodal coordinates
+                reSearch = re.search('\s+2C\s+(\d+)', line)
+                numNodes = int(reSearch.group(1))
+
+                nodes = []
+                for i in range(numNodes):
+                    line = infile.readline()
+                    nid, x, y, z = self._getVals("1X,I2,I10,6E12.5", line)[1:]
+                    nodes.append([nid, x, y, z])
+
+                self._nodes = np.array(nodes)
+
+            if '3C' in line:
+                # Read elemental coordinates
+                reSearch = re.search('\s+3C\s+(\d+)', line)
+                numElements = int(reSearch[1])
+
+                elements = []
+                line = infile.readline()
+
+
+                elIds = []
+                eId = None
+                eType = None
+
+                while True:
+
+                    if line[:3] == ' -3':
+                        if len(elIds) > 0:
+                            elements.append([eId, eType] + elIds)
+                        break
+                    elif line[:3] == ' -1':
+                        if len(elIds) > 0:
+                            elements.append([eId, eType] + elIds)
+                        eId, eType, eGrp, eMat = self._getVals("1X,' -1',5A1,4I5", line)[2:]
+                        elIds = []
+                    elif line[:3] == ' -2':
+                        elIds += self._getVals("1X,'-2',20I10", line)[1:]
+                    else:
+                        raise Exception('Error parsing .frd file')
+
+                    line = infile.readline()
+
+                self._elements = elements
+
             # set the results mode
             if '1PSTEP' in line:
                 # we are in a results block
                 arr = self.readNodalResultsBlock(infile)
                 line, mode, rfstr, time, inc = arr
                 inc = int(inc)
+
                 if inc not in self.increments.keys():
                     self.increments[inc] = {'time'  : time,
                                             'disp'  : [],
+                                            'elStress': [],
                                             'stress': [],
                                             'strain': [],
                                             'force' : [],
@@ -369,6 +621,9 @@ class ResultProcessor:
 
         infile.close()
 
+        """ 
+        Read the element post-processing file
+        """
         self.readDat()
 
         # Process the nodal blocks
@@ -379,33 +634,34 @@ class ResultProcessor:
             inc['force'] = self.orderNodes(np.array(inc['force']))
             inc['temp'] = self.orderNodes(np.array(inc['temp']))
 
-        print('The following times have been read:')
-        print(len(self.increments))
+        logging.info('Results Processor: The following times have been read:')
+        timeIncrements = [val['time'] for val in self.increments.values()]
+        logging.info(', '.join([str(time) for time in timeIncrements]))
 
     @staticmethod
     def orderNodes(nodeVals):
         if nodeVals.size == 0:
             return nodeVals
 
-        return nodeVals[nodeVals[:, 0].argsort(), :]
+        return nodeVals[np.argsort(nodeVals[:, 0]), :]
 
     @staticmethod
     def orderElements(elVals):
         if elVals.size == 0:
             return elVals
 
-        return elVals[elVals[:, 0].argsort(), :]
+        return elVals[np.argsort(elVals[:, 0]), :]
 
     def readDat(self):
 
         fname = '{:s}.dat'.format(self.jobName)
 
         if not os.path.isfile(fname):
-            print('Error: %s file not found' % fname)
+            raise Exception('Error: %s file not found' % fname)
             return
 
         infile = open(fname, 'r')
-        print('Loading element results from file: ' + fname)
+        logging.info('Loading element results from file: {:s}'.format(fname))
 
         mode = None
         rfstr = ''
@@ -426,23 +682,34 @@ class ResultProcessor:
                 arr = self.readElResultBlock(infile, line)
                 line, mode, rfstr, incTime = arr
 
-                # store stress results
+                # Store the element stress results across all integration quadrature points
                 inc, increment = self.findIncrementByTime(incTime)
-                self.increments[inc]['elStress'].append(self.readElStress(line, rfstr, incTime))
+                mode = 'elStress'
+
             elif 'heat flux' in line:
                 arr = self.readElResultBlock(infile, line)
                 line, mode, rfstr, incTime = arr
 
-                print(incTime)
-                print(self.increments)
                 # store the heatlufx results
                 inc, increment = self.findIncrementByTime(incTime)
 
                 mode = 'elHeatFlux'
                 self.increments[inc][mode] = []
 
-            if mode and inc > -1:
-                self.increments[inc][mode].append(self.readElFlux(line, rfstr, incTime))
+                if mode and inc > -1:
+                    self.increments[inc][mode].append(self.readElFlux(line, rfstr, incTime))
+
+            # set mode to none if we hit the end of a resuls block
+            if line.isspace():
+                mode = None
+
+            if not mode:
+                continue
+
+            if mode == 'elStress':
+                self.increments[inc]['elStress'].append(self.readElStress(line, rfstr, incTime))
+            elif mode == 'elHeatFlux':
+                self.increments[inc]['elHeatFlux'].append(self.readElFlux(line, rfstr, incTime))
 
         for inc in self.increments.values():
 

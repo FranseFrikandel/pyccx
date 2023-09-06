@@ -1,10 +1,13 @@
-import re  # used to get info from frd file
+import re
 import os
 import sys
-import subprocess  # used to check ccx version
-from enum import Enum, auto
-from typing import List, Tuple, Type
+import subprocess
 import logging
+
+from enum import Enum, IntEnum, auto
+from typing import List, Tuple, Type
+
+import numpy as np
 
 from ..bc import BoundaryCondition
 from ..core import MeshSet, ElementSet, SurfaceSet, NodeSet, Connector
@@ -27,14 +30,77 @@ class AnalysisError(Exception):
         self.message = message
 
 
-class AnalysisType(Enum):
+class AnalysisType(IntEnum):
     """
-    The analysis types available for use.
+    The analysis types available in Calculix that may be used for analyses
     """
     STRUCTURAL = auto()
     THERMAL = auto()
     FLUID = auto()
 
+
+class MaterialAssignment():
+    """
+    An element set is basic entity for storing element set lists.The set remains constant without any dynamic referencing
+     to any underlying geometric entities.
+    """
+
+    def __init__(self, name: str, elementSet: ElementSet, material: Material):
+        self._name = name
+        self._elSet = elementSet
+        self._material = material
+
+    @property
+    def material(self) -> Material:
+        return self._material
+
+    @material.setter
+    def material(self, material: Material):
+        self._material = material
+
+    @property
+    def els(self) -> ElementSet:
+        """
+        Elements contains the list of Node IDs
+        """
+        return self._elSet
+
+    @els.setter
+    def els(self, elementSet: ElementSet):
+        self._elSet = elementSet
+
+    def writeInput(self) -> str:
+        raise Exception('Not implemented')
+
+
+class SolidMaterialAssignment(MaterialAssignment):
+
+    def __init__(self, name, elementSet, material):
+        super().__init__(name, elementSet, material)
+
+    def writeInput(self) -> str:
+        out = '*solid section, elset={:s}, material={:s}\n'.format(self._elSet.name, self._material.name)
+        return out
+
+class ShellMaterialAssignment(MaterialAssignment):
+
+    def __init__(self, name, elementSet, material, thickness):
+        super().__init__(name, elementSet, material)
+
+        self._thickness = thickness
+
+    @property
+    def thickness(self):
+        return self._thickness
+
+    @thickness.setter
+    def thickness(self, thickness):
+        self._thickness =  thickness
+
+    def writeInput(self) -> str:
+        out  = '*shell section, elset={:s}, material={:s}\n'.format(self._elSet.name, self._material.name)
+        out += '{:.3f}\n'.format(self._thickness)
+        return out
 
 class Simulation:
     """
@@ -203,14 +269,14 @@ class Simulation:
         self._materials = materials
 
     @property
-    def materialAssignments(self):
+    def materialAssignments(self) -> List[MaterialAssignment]:
         """
         Material Assignment applied to a set of elements
         """
         return self._materialAssignments
 
     @materialAssignments.setter
-    def materialAssignments(self, matAssignments):
+    def materialAssignments(self, matAssignments: List[MaterialAssignment]):
         self._materialAssignments = matAssignments
 
     def _collectSets(self, setType: Type[MeshSet] = None):
@@ -292,11 +358,11 @@ class Simulation:
         """
         User-defined :class:`pyccx.core.SurfaceSet`  manually added to the analysis
         """
-        return self._nodeSets
+        return self._surfaceSets
 
     @surfaceSets.setter
     def surfaceSets(self, val=List[SurfaceSet]):
-        surfaceSets = val
+        self._surfaceSets = val
 
     def getElementSets(self) -> List[ElementSet]:
         """
@@ -417,7 +483,7 @@ class Simulation:
         self._input += '{:*^125}\n'.format(' MATERIAL ASSIGNMENTS ')
 
         for matAssignment in self.materialAssignments:
-            self._input += '*solid section, elset={:s}, material={:s}\n'.format(matAssignment[0], matAssignment[1])
+            self._input += matAssignment.writeInput()
 
     def _writeMaterials(self):
         self._input += os.linesep
@@ -500,6 +566,11 @@ class Simulation:
             version = re.search(r"(\d+).(\d+)", stdout)
             return int(version.group(1)), int(version.group(2))
 
+        elif sys.platform == 'darwin':
+            p = subprocess.Popen([self.CALCULIX_PATH, '-v'], stdout=subprocess.PIPE, universal_newlines=True )
+            stdout, stderr = p.communicate()
+            version = re.search(r"(\d+).(\d+)", stdout)
+            return int(version.group(1)), int(version.group(2))
         else:
             raise NotImplemented(' Platform is not currently supported')
 
@@ -507,8 +578,11 @@ class Simulation:
         """
         The results obtained after running an analysis
          """
+
+        workingResultsPath = os.path.join(self._workingDirectory,'input')
+
         if self.isAnalysisCompleted():
-            return ResultProcessor(os.path.join(self._workingDirectory, 'input'))
+            return ResultProcessor(workingResultsPath)
         else:
             raise ValueError('Results were not available')
 
@@ -540,6 +614,93 @@ class Simulation:
         except:
             pass
 
+    def monitor(self, filename):
+
+        # load the .sta file for convegence monitoring
+
+        staFilename = '{:s}.sta'.format(filename)
+
+        """
+        Note:
+        Format of each row in the .sta file corresponds with
+        
+        0 STEP
+        1 INC
+        2 ATT
+        3 ITRS
+        4 TOT TIME
+        5 STEP TIME
+        6 INC TIME
+        """
+        with open(staFilename, 'r') as f:
+
+            # check the first two lines of the .sta file are correct
+            line1 = f.readline()
+            line2 = f.readline()
+
+            if not('SUMMARY OF JOB INFORMATION' in line1 and
+                   'STEP' in line2):
+                raise Exception('Invalid .sta file generated')
+
+            line = f.readline()
+
+            convergenceOutput = []
+
+            while line:
+                out = re.search('\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)*', line)
+
+                if out:
+                    out = [float(val) for val in out.groups()]
+                    convergenceOutput.append(out)
+
+                line = f.readline()
+
+        convergenceOutput = np.array(convergenceOutput)
+
+        cvgFilename = '{:s}.cvg'.format(filename)
+
+        """
+        Note:
+        
+        Format of the CVF format consists of the following parameters
+        0 STEP
+        1 INC
+        2 ATT
+        3 ITER
+        4 CONT EL
+        5 RESID FORCE
+        6 CORR DISP
+        7 RESID FLUX
+        8 CORR TEMP
+        """
+        with open(cvgFilename, 'r') as f:
+
+            # check the first two lines of the .sta file are correct
+            line1 = f.readline()
+            line2 = f.readline()
+            line3 = f.readline()
+            line4 = f.readline()
+
+            if not ('SUMMARY OF C0NVERGENCE INFORMATION' in line1 and
+                    'STEP' in line2):
+                raise Exception('Invalid .cvg file generated')
+
+            line = f.readline()
+
+            convergenceOutput2 = []
+
+            while line:
+                out = re.search('\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)*', line)
+
+                if out:
+                    out = [float(val) for val in out.groups()]
+                    convergenceOutput2.append(out)
+
+                line = f.readline()
+
+            convergenceOutput2 = np.array(convergenceOutput2)
+
+        return convergenceOutput, convergenceOutput2
     def run(self):
         """
         Performs pre-analysis checks on the model and submits the job for Calculix to perform.
@@ -561,6 +722,7 @@ class Simulation:
         # Set environment variables for performing multi-threaded
         os.environ["CCX_NPROC_STIFFNESS"] = '{:d}'.format(Simulation.NUMTHREADS)
         os.environ["CCX_NPROC_EQUATION_SOLVER"] = '{:d}'.format(Simulation.NUMTHREADS)
+        os.environ["NUMBER_OF_PROCESSORS"] = '{:d}'.format(Simulation.NUMTHREADS)
         os.environ["OMP_NUM_THREADS"] = '{:d}'.format(Simulation.NUMTHREADS)
 
         print('\n{:=^60}\n'.format(' RUNNING CALCULIX '))
@@ -612,6 +774,26 @@ class Simulation:
             filename = 'input'
 
             cmdSt = ['ccx', '-i', filename]
+
+            popen = subprocess.Popen(cmdSt, cwd=self._workingDirectory, stdout=subprocess.PIPE, universal_newlines=True)
+
+            if self.VERBOSE_OUTPUT:
+                for stdout_line in iter(popen.stdout.readline, ""):
+                    print(stdout_line, end='')
+
+            popen.stdout.close()
+            return_code = popen.wait()
+            if return_code:
+                raise subprocess.CalledProcessError(return_code, cmdSt)
+
+            # Analysis was completed successfully
+            self._analysisCompleted = True
+
+        elif sys.platform == 'darwin':
+
+            filename = 'input'
+
+            cmdSt = [self.CALCULIX_PATH, '-i', filename]
 
             popen = subprocess.Popen(cmdSt, cwd=self._workingDirectory, stdout=subprocess.PIPE, universal_newlines=True)
 
