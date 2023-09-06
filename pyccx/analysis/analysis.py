@@ -720,10 +720,13 @@ class Simulation:
             text_file.write(inputDeckContents)
 
         # Set environment variables for performing multi-threaded
-        os.environ["CCX_NPROC_STIFFNESS"] = '{:d}'.format(Simulation.NUMTHREADS)
-        os.environ["CCX_NPROC_EQUATION_SOLVER"] = '{:d}'.format(Simulation.NUMTHREADS)
-        os.environ["NUMBER_OF_PROCESSORS"] = '{:d}'.format(Simulation.NUMTHREADS)
-        os.environ["OMP_NUM_THREADS"] = '{:d}'.format(Simulation.NUMTHREADS)
+        if self.USE_WSL:
+            pass
+            # os.system("wsl.exe export CCX_NPROC_STIFFNESS={0:d} CCX_NPROC_EQUATION_SOLVER={0:d} OMP_NUM_THREADS={0:d}".format(Simulation.NUMTHREADS))
+        else:
+            os.environ["CCX_NPROC_STIFFNESS"] = '{:d}'.format(Simulation.NUMTHREADS)
+            os.environ["CCX_NPROC_EQUATION_SOLVER"] = '{:d}'.format(Simulation.NUMTHREADS)
+            os.environ["OMP_NUM_THREADS"] = '{:d}'.format(Simulation.NUMTHREADS)
 
         print('\n{:=^60}\n'.format(' RUNNING CALCULIX '))
 

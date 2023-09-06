@@ -147,13 +147,7 @@ class NodalResult(Result):
         if isinstance(self.nodeSet, str) and self.nodeSet != '':
             inputStr += 'NSET={:s}, '.format(self.nodeSet)
 
-        if isinstance(self.nodeSet, NodeSet):
-            inputStr += 'NSET={:s}, '.format(self.nodeSet.name)
-
-        if not self._expandShellElements:
-            inputStr += 'OUTPUT=2D, '
-
-        inputStr += 'FREQUENCY={:d}\n'.format(self._frequency)
+        inputStr += 'FREQUENCY={:d}\n'.format(self.frequency)
 
         if self._displacement:
             inputStr += 'U\n'

@@ -274,7 +274,7 @@ class Fixed(BoundaryCondition):
 
         nodesetName = self.getTargetName()
 
-        if len(self.dof) != len(self._values):
+        if self._values and (len(self.dof) != len(self._values)):
             raise ValueError('DOF and Prescribed DOF must have a matching size')
 
         # 1-3 U, 4-6, rotational DOF, 11 = Temp
@@ -392,6 +392,66 @@ class Pressure(BoundaryCondition):
         return bCondStr
 
 
+class SurfaceTraction(BoundaryCondition):
+    """
+    The SurfaceTraction Boundary Condition applies a force to faces across an element boundary.
+    """
+
+    def __init__(self, target):
+        self.mag = 0.0
+        self.dir = np.array([0.0, 0.0, 1.0])
+
+        super().__init__(target)
+
+    def type(self) -> BoundaryConditionType:
+        return BoundaryConditionType.STRUCTURAL
+
+    def setVector(self, v) -> None:
+        """
+        The applied force set by the vector
+
+        :param v: The Force vector
+        """
+        from numpy import linalg
+        mag = linalg.norm(v)
+        self.dir = v / linalg.norm(v)
+        self.mag = mag
+
+    @property
+    def magnitude(self) -> float:
+        """
+        The magnitude of force applied onto the surface
+        """
+        return self.mag
+
+    @magnitude.setter
+    def magnitude(self, magVal: float) -> None:
+        self.mag = magVal
+
+    @property
+    def direction(self) -> np.ndarray:
+        """
+        The normalised vector of the force direction
+        """
+        return self.dir
+
+    @direction.setter
+    def direction(self, v: float) -> None:
+        from numpy import linalg
+        self.dir = v / linalg.norm(v)
+
+    def writeInput(self) -> str:
+        bCondStr = '*CLOAD\n'
+        nodesetName = self.getTargetName()
+        numNodes = len(self.target.nodes)
+
+        for i in range(3):
+            compMag = self.mag * self.dir[i] / numNodes
+            bCondStr += '{:s},{:d},{:f}\n'.format(nodesetName, i + 1, compMag)
+
+        return bCondStr
+
+
 class Force(BoundaryCondition):
     """
     The Force Boundary applies a uniform force directly to nodes. This BC may be used in thermal and
@@ -407,7 +467,7 @@ class Force(BoundaryCondition):
     def type(self) -> BoundaryConditionType:
         return BoundaryConditionType.STRUCTURAL
 
-    def setVector(self, v) -> None:
+    def setVector(self, v: np.ndarray) -> None:
         """
         The applied force set by the vector
 
@@ -447,6 +507,6 @@ class Force(BoundaryCondition):
 
         for i in range(3):
             compMag = self.mag * self.dir[i]
-            bCondStr += '{:s},{:d}\n'.format(nodesetName, i+1, compMag)
+            bCondStr += '{:s},{:d},{:f}\n'.format(nodesetName, i + 1, compMag)
 
         return bCondStr
