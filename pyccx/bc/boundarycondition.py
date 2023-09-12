@@ -570,12 +570,11 @@ class Force(BoundaryCondition):
     coupled thermo-mechanical analyses provided the DOF is applicable to the analysis type.
     """
 
-    def __init__(self, target,
-                 name: str = None, amplitude: Amplitude = None, timeDelay: float = None):
+    def __init__(self, target):
         self.mag = 0.0
         self.dir = np.array([0.0, 0.0, 1.0])
 
-        super().__init__(name, target, amplitude, timeDelay)
+        super().__init__(target)
 
     def type(self) -> BoundaryConditionType:
         return BoundaryConditionType.STRUCTURAL

@@ -139,12 +139,9 @@ class ElementSet(MeshSet):
         self._els = np.unique(np.asanyarray(elements, dtype=np.int64))
 
     def writeInput(self) -> str:
-
-        out = '*ELSET, ELSET={:s}\n'.format(self.name)
-
-        for i in range(0, self._els.shape[0], 16):
-            out += ', '.join(['{0:6d}'.format(val) for val in self._els[i:i+16]])
-            out += '\n'
+        out = '*ELSET,ELSET={:s}\n'.format(self.name)
+        out += np.array2string(self.els.ravel(), precision=2, separator=', ', threshold=9999999999)[1:-1]
+        out += '\n'
 
         return out
 
